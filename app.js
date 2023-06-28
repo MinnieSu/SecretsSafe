@@ -1,11 +1,12 @@
-// reuqire dotenv and configure it to be able to access our env varibles
+// require dotenv and configure it to be able to access our env variables
 require("dotenv").config();
 
 const express = require("express");
 const ejs = require("ejs");
 const app = express();
 const mongoose = require("mongoose");
-const encrypt = require("mongoose-encryption");
+const bcrypt = require("bcrypt");
+const saltRounds = 10;
 
 app.use(express.static("public"));
 app.set("view engine", "ejs");
@@ -19,11 +20,6 @@ async function main() {
   const usersSchema = new mongoose.Schema({
     email: String,
     password: String,
-  });
-
-  usersSchema.plugin(encrypt, {
-    secret: process.env.SECRET,
-    encryptedFields: ["password"],
   });
 
   const User = mongoose.model("User", usersSchema);
@@ -43,18 +39,20 @@ async function main() {
   });
 
   //Allow user to access "/secrets" page after registration.
-  app.post("/register", async (req, res) => {
-    const newUser = new User({
-      email: req.body.username,
-      password: req.body.password,
-    });
+  app.post("/register", (req, res) => {
+    bcrypt.hash(req.body.password, saltRounds, async (err, hash) => {
+      const newUser = new User({
+        email: req.body.username,
+        password: hash,
+      });
 
-    await newUser
-      .save()
-      .then(() => {
-        res.render("secrets");
-      })
-      .catch((err) => console.log(err));
+      await newUser
+        .save()
+        .then(() => {
+          res.render("secrets");
+        })
+        .catch((err) => console.log(err));
+    });
   });
 
   //allow user to access "/secrets" page after logged in.
@@ -64,11 +62,13 @@ async function main() {
       const password = req.body.password;
       const foundUser = await User.findOne({ email: username });
       if (foundUser) {
-        if (foundUser.password === password) {
-          res.render("secrets");
-        } else {
-          res.render("login", { errMsg: "Invalid username or password" });
-        }
+        bcrypt.compare(password, foundUser.password, function (err, result) {
+          if (result == true) {
+            res.render("secrets");
+          } else {
+            res.render("login", { errMsg: "Invalid username or password" });
+          }
+        });
       } else {
         res.render("login", { errMsg: "Invalid username or password" });
       }
@@ -76,6 +76,8 @@ async function main() {
       (err) => console.log(err);
     }
   });
+
+  //use md5 to hash user's password when they registers and logs in.
 
   app.listen(3000, () => {
     console.log("Server started on port 3000");
