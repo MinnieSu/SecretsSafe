@@ -5,12 +5,25 @@ const express = require("express");
 const ejs = require("ejs");
 const app = express();
 const mongoose = require("mongoose");
-const bcrypt = require("bcrypt");
-const saltRounds = 10;
+const session = require("express-session");
+const passport = require("passport");
+const passportLocalMongoose = require("passport-local-mongoose");
 
 app.use(express.static("public"));
 app.set("view engine", "ejs");
 app.use(express.urlencoded({ extended: true }));
+
+// set up session and passport with some initial configurations.
+app.use(
+  session({
+    secret: "This is our secret.",
+    resave: false,
+    saveUninitialized: true,
+  })
+);
+
+app.use(passport.initialize());
+app.use(passport.session());
 
 main().catch((err) => console.log(err));
 
@@ -22,7 +35,29 @@ async function main() {
     password: String,
   });
 
+  //   Hash and salt passwords and save our users to DB
+  usersSchema.plugin(passportLocalMongoose);
+
   const User = mongoose.model("User", usersSchema);
+
+  // use passport to create a local login strategy. (static authenticate method of model in LocalStrategy)
+  passport.use(User.createStrategy());
+
+  // use static serialize and deserialize of model for passport session support
+  passport.serializeUser(function (user, cb) {
+    process.nextTick(function () {
+      return cb(null, {
+        id: user._id,
+        username: user.username,
+      });
+    });
+  });
+
+  passport.deserializeUser(function (user, cb) {
+    process.nextTick(function () {
+      return cb(null, user);
+    });
+  });
 
   app.get("/", (req, res) => {
     res.render("home");
@@ -34,50 +69,66 @@ async function main() {
     res.render("register");
   });
 
+  //   Render "secrets" page if user is logged in, otherwise rediret user to the "login" page
   app.get("/secrets", (req, res) => {
-    res.render("secrets");
+    if (req.isAuthenticated()) {
+      res.render("secrets");
+    } else {
+      res.redirect("/login");
+    }
   });
 
-  //Allow user to access "/secrets" page after registration.
-  app.post("/register", (req, res) => {
-    bcrypt.hash(req.body.password, saltRounds, async (err, hash) => {
-      const newUser = new User({
-        email: req.body.username,
-        password: hash,
-      });
-
-      await newUser
-        .save()
-        .then(() => {
-          res.render("secrets");
-        })
-        .catch((err) => console.log(err));
+  //   Logout user once they clicked logout button, end their session and redirect to home page.
+  app.get("/logout", (req, res, next) => {
+    req.logout(function (err) {
+      if (err) {
+        return next(err);
+      } else {
+        res.redirect("/");
+      }
     });
   });
 
-  //allow user to access "/secrets" page after logged in.
-  app.post("/login", async (req, res) => {
+  //Register a user using passportLocalMongoose package. Allow user to access "/secrets" page after registration.
+  app.post("/register", async (req, res) => {
     try {
-      const username = req.body.username;
-      const password = req.body.password;
-      const foundUser = await User.findOne({ email: username });
-      if (foundUser) {
-        bcrypt.compare(password, foundUser.password, function (err, result) {
-          if (result == true) {
-            res.render("secrets");
-          } else {
-            res.render("login", { errMsg: "Invalid username or password" });
-          }
+      const registerUser = await User.register(
+        { username: req.body.username },
+        req.body.password
+      );
+      // use Passport to authenticate user:
+      //   -- if user is successfully registered, then sets up a cookie and saves current login session
+      //   so that user can automatically be able to view the "secrets" page if they are still loged in
+      //   -- Otherwise, redirects user to "resgister" page and try again.
+      if (registerUser) {
+        passport.authenticate("local")(req, res, function () {
+          res.redirect("/secrets");
         });
       } else {
-        res.render("login", { errMsg: "Invalid username or password" });
+        res.redirect("/register");
       }
     } catch {
       (err) => console.log(err);
     }
   });
 
-  //use md5 to hash user's password when they registers and logs in.
+  // Authenticate users using Passport, to access "/secrets" page after logged in.
+  app.post("/login", (req, res) => {
+    const user = new User({
+      username: req.body.username,
+      password: req.body.password,
+    });
+
+    req.login(user, function (err) {
+      if (err) {
+        return next(err);
+      } else {
+        passport.authenticate("local")(req, res, function () {
+          res.redirect("/secrets");
+        });
+      }
+    });
+  });
 
   app.listen(3000, () => {
     console.log("Server started on port 3000");
