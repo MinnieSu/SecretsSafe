@@ -1,27 +1,34 @@
-// require dotenv and configure it to be able to access our env variables
+// require dotenv and configure it to access env variables
 require("dotenv").config();
 
+// Passport Package/Express-Sessions/PassportLocalMongoose
+const session = require("express-session");
+const passport = require("passport");
+const passportLocalMongoose = require("passport-local-mongoose");
+// OAuth
+const GoogleStrategy = require("passport-google-oauth20").Strategy;
+
+// Initializing Express, EJS and Mongoose.
 const express = require("express");
 const ejs = require("ejs");
 const app = express();
 const mongoose = require("mongoose");
-const session = require("express-session");
-const passport = require("passport");
-const passportLocalMongoose = require("passport-local-mongoose");
 
 app.use(express.static("public"));
 app.set("view engine", "ejs");
 app.use(express.urlencoded({ extended: true }));
 
-// set up session and passport with some initial configurations.
+// Initialises Express-session
 app.use(
   session({
     secret: "This is our secret.",
     resave: false,
     saveUninitialized: true,
+    cookie: { secure: false }, // Remember to set this
   })
 );
 
+// Initialises Passport.js
 app.use(passport.initialize());
 app.use(passport.session());
 
@@ -33,17 +40,24 @@ async function main() {
   const usersSchema = new mongoose.Schema({
     email: String,
     password: String,
+    googleId: String,
+    secret: String,
   });
 
-  //   Hash and salt passwords and save our users to DB
+  // PassportlocalMongoose plugin-- Hash and salt passwords and save our users to DB
   usersSchema.plugin(passportLocalMongoose);
 
   const User = mongoose.model("User", usersSchema);
 
-  // use passport to create a local login strategy. (static authenticate method of model in LocalStrategy)
+  // Initializing and using passport-local-mongoose (static authentication method, serialization and deserialization of model in local strtegy.)
+
+  // passport.use(User.createStrategy());
+  // passport.serializeUser(User.serializeUser());
+  // passport.deserializeUser(User.deserializeUser());
+
+  //  Initializing strategy for OAuth.
   passport.use(User.createStrategy());
 
-  // use static serialize and deserialize of model for passport session support
   passport.serializeUser(function (user, cb) {
     process.nextTick(function () {
       return cb(null, {
@@ -59,9 +73,58 @@ async function main() {
     });
   });
 
+  //   OAuth (verify function must call cb to complete authentication)
+  passport.use(
+    new GoogleStrategy(
+      {
+        clientID: process.env.CLIENT_ID,
+        clientSecret: process.env.CLIENT_SECRET,
+        callbackURL: "http://localhost:3000/auth/google/secrets",
+        userProfileURL: "https://www.googleapis.com/oauth2/v3/userinfo",
+      },
+      function (accessToken, refreshToken, profile, cb) {
+        User.findOne({ googleId: profile.id }).then((foundUser) => {
+          console.log(foundUser);
+          if (!foundUser) {
+            const user = new User({
+              googleId: profile.id,
+            });
+            user
+              .save()
+              .then(() => {
+                return cb(null, user);
+              })
+              .catch((err) => {
+                return cb(err);
+              });
+          }
+          return cb(null, foundUser);
+        });
+      }
+    )
+  );
+
+  //   APPS MAIN ROUTES
   app.get("/", (req, res) => {
     res.render("home");
   });
+
+  //   Use passport to authenticate user using the google strategy that we established above.
+  app.get(
+    "/auth/google",
+    passport.authenticate("google", { scope: "profile" })
+  );
+
+  //   Redirect user back to our app once they logged into google.
+  //   Use the options(successRedirect and failureRedirect) in Passport authenticate function to specify routes.
+  app.get(
+    "/auth/google/secrets",
+    passport.authenticate("google", {
+      successRedirect: "/secrets",
+      failureRedirect: "/login",
+    })
+  );
+
   app.get("/login", (req, res) => {
     res.render("login", { errMsg: "" });
   });
@@ -69,6 +132,7 @@ async function main() {
     res.render("register");
   });
 
+  //   Secrets page access when the session exists
   //   Render "secrets" page if user is logged in, otherwise rediret user to the "login" page
   app.get("/secrets", (req, res) => {
     if (req.isAuthenticated()) {
@@ -78,7 +142,8 @@ async function main() {
     }
   });
 
-  //   Logout user once they clicked logout button, end their session and redirect to home page.
+  //   LOGOUT ROUTE
+  //   Log out users once they click logout button, end their session and redirect to home page.
   app.get("/logout", (req, res, next) => {
     req.logout(function (err) {
       if (err) {
@@ -89,7 +154,8 @@ async function main() {
     });
   });
 
-  //Register a user using passportLocalMongoose package. Allow user to access "/secrets" page after registration.
+  //   POST ROUTE
+  //   Register a user using passportLocalMongoose package. Allow user to access "/secrets" page after registration.
   app.post("/register", async (req, res) => {
     try {
       const registerUser = await User.register(
@@ -119,11 +185,14 @@ async function main() {
       password: req.body.password,
     });
 
+    console.log("0" + req.isAuthenticated());
     req.login(user, function (err) {
       if (err) {
         return next(err);
       } else {
+        console.log("1" + req.isAuthenticated());
         passport.authenticate("local")(req, res, function () {
+          console.log("2" + req.isAuthenticated());
           res.redirect("/secrets");
         });
       }

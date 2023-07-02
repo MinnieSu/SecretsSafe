@@ -1,5 +1,6 @@
 body {
   background-color: #e8ecef;
+  margin: 6% 10%;
 }
 
 .centered {
@@ -16,4 +17,12 @@ body {
 
 #errMsg {
   color: #b31312;
+}
+.btn-social {
+  padding: 8px 100px 8px 60px;
+  margin: 4%;
+}
+
+.form-group {
+  margin-bottom: 15px;
 }
