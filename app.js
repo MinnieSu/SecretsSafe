@@ -7,12 +7,14 @@ const passport = require("passport");
 const passportLocalMongoose = require("passport-local-mongoose");
 // OAuth
 const GoogleStrategy = require("passport-google-oauth20").Strategy;
+const FacebookStrategy = require("passport-facebook");
 
 // Initializing Express, EJS and Mongoose.
 const express = require("express");
 const ejs = require("ejs");
 const app = express();
 const mongoose = require("mongoose");
+const findOrCreate = require("mongoose-findorcreate");
 
 app.use(express.static("public"));
 app.set("view engine", "ejs");
@@ -22,8 +24,8 @@ app.use(express.urlencoded({ extended: true }));
 app.use(
   session({
     secret: "This is our secret.",
-    resave: false,
-    saveUninitialized: true,
+    resave: false, //don't save session if unmodified
+    saveUninitialized: true, //store session everytime for request
     cookie: { secure: false }, // Remember to set this
   })
 );
@@ -41,11 +43,14 @@ async function main() {
     email: String,
     password: String,
     googleId: String,
+    facebookId: String,
     secret: String,
   });
 
   // PassportlocalMongoose plugin-- Hash and salt passwords and save our users to DB
   usersSchema.plugin(passportLocalMongoose);
+  //   Mongoose-findOrCreate pluin
+  usersSchema.plugin(findOrCreate);
 
   const User = mongoose.model("User", usersSchema);
 
@@ -73,36 +78,60 @@ async function main() {
     });
   });
 
-  //   OAuth (verify function must call cb to complete authentication)
+  //   OAuth with Facebook and Google
+  //   (Passport verify function must call cb to complete authentication)
   passport.use(
-    new GoogleStrategy(
+    new FacebookStrategy(
       {
-        clientID: process.env.CLIENT_ID,
-        clientSecret: process.env.CLIENT_SECRET,
-        callbackURL: "http://localhost:3000/auth/google/secrets",
-        userProfileURL: "https://www.googleapis.com/oauth2/v3/userinfo",
+        clientID: process.env.FACEBOOK_APP_ID,
+        clientSecret: process.env.FACEBOOK_APP_SECRET,
+        callbackURL: "http://localhost:3000/auth/facebook/secrets",
+        state: true,
       },
-      function (accessToken, refreshToken, profile, cb) {
-        User.findOne({ googleId: profile.id }).then((foundUser) => {
-          console.log(foundUser);
-          if (!foundUser) {
-            const user = new User({
-              googleId: profile.id,
-            });
-            user
-              .save()
-              .then(() => {
-                return cb(null, user);
-              })
-              .catch((err) => {
-                return cb(err);
-              });
-          }
-          return cb(null, foundUser);
+      function verify(accessToken, refreshToken, profile, cb) {
+        User.findOrCreate({ facebookId: profile.id }, function (err, user) {
+          console.log(user);
+          return cb(err, user);
         });
       }
     )
   );
+
+  passport.use(
+    new GoogleStrategy(
+      {
+        clientID: process.env.GOOGLE_CLIENT_ID,
+        clientSecret: process.env.GOOGLE_CLIENT_SECRET,
+        callbackURL: "http://localhost:3000/auth/google/secrets",
+        userProfileURL: "https://www.googleapis.com/oauth2/v3/userinfo",
+      },
+      function verify(accessToken, refreshToken, profile, cb) {
+        User.findOrCreate({ googleId: profile.id }, function (err, user) {
+          console.log(user);
+          return cb(err, user);
+        });
+      }
+    )
+  );
+
+  //   Code using Mongoose function without findOrCreate package.
+  // User.findOne({ googleId: profile.id }).then((foundUser) => {
+  //   console.log(foundUser);
+  //   if (!foundUser) {
+  //     const user = new User({
+  //       googleId: profile.id,
+  //     });
+  //     user
+  //       .save()
+  //       .then(() => {
+  //         return cb(null, user);
+  //       })
+  //       .catch((err) => {
+  //         return cb(err);
+  //       });
+  //   }
+  //   return cb(null, foundUser);
+  // });
 
   //   APPS MAIN ROUTES
   app.get("/", (req, res) => {
@@ -120,6 +149,15 @@ async function main() {
   app.get(
     "/auth/google/secrets",
     passport.authenticate("google", {
+      successRedirect: "/secrets",
+      failureRedirect: "/login",
+    })
+  );
+
+  app.get("/auth/facebook", passport.authenticate("facebook"));
+  app.get(
+    "/auth/facebook/secrets",
+    passport.authenticate("facebook", {
       successRedirect: "/secrets",
       failureRedirect: "/login",
     })

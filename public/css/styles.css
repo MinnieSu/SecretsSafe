@@ -19,10 +19,13 @@ body {
   color: #b31312;
 }
 .btn-social {
-  padding: 8px 100px 8px 60px;
+  /* padding: 8px 100px 8px 60px; */
   margin: 4%;
 }
 
+.btn-google {
+  padding-right: 27px;
+}
 .form-group {
   margin-bottom: 15px;
 }
