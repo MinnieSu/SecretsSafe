@@ -26,7 +26,7 @@ app.use(
     secret: "This is our secret.",
     resave: false, //don't save session if unmodified
     saveUninitialized: true, //store session everytime for request
-    cookie: { secure: false }, // Remember to set this
+    cookie: { secure: false }, //allow cookies to be sent over HTTP connection for local development
   })
 );
 
@@ -54,12 +54,6 @@ async function main() {
 
   const User = mongoose.model("User", usersSchema);
 
-  // Initializing and using passport-local-mongoose (static authentication method, serialization and deserialization of model in local strtegy.)
-
-  // passport.use(User.createStrategy());
-  // passport.serializeUser(User.serializeUser());
-  // passport.deserializeUser(User.deserializeUser());
-
   //  Initializing strategy for OAuth.
   passport.use(User.createStrategy());
 
@@ -79,7 +73,6 @@ async function main() {
   });
 
   //   OAuth with Facebook and Google
-  //   (Passport verify function must call cb to complete authentication)
   passport.use(
     new FacebookStrategy(
       {
@@ -90,8 +83,7 @@ async function main() {
       },
       function verify(accessToken, refreshToken, profile, cb) {
         User.findOrCreate({ facebookId: profile.id }, function (err, user) {
-          console.log(user);
-          return cb(err, user);
+          return cb(err, user); // Passport verify function must call cb to complete authentication
         });
       }
     )
@@ -105,47 +97,26 @@ async function main() {
         callbackURL: "http://localhost:3000/auth/google/secrets",
         userProfileURL: "https://www.googleapis.com/oauth2/v3/userinfo",
       },
-      function verify(accessToken, refreshToken, profile, cb) {
+      function (accessToken, refreshToken, profile, cb) {
         User.findOrCreate({ googleId: profile.id }, function (err, user) {
-          console.log(user);
           return cb(err, user);
         });
       }
     )
   );
 
-  //   Code using Mongoose function without findOrCreate package.
-  // User.findOne({ googleId: profile.id }).then((foundUser) => {
-  //   console.log(foundUser);
-  //   if (!foundUser) {
-  //     const user = new User({
-  //       googleId: profile.id,
-  //     });
-  //     user
-  //       .save()
-  //       .then(() => {
-  //         return cb(null, user);
-  //       })
-  //       .catch((err) => {
-  //         return cb(err);
-  //       });
-  //   }
-  //   return cb(null, foundUser);
-  // });
-
   //   APPS MAIN ROUTES
   app.get("/", (req, res) => {
     res.render("home");
   });
 
-  //   Use passport to authenticate user using the google strategy that we established above.
+  //   Use Passport's Google strategy to authenticate users.
   app.get(
     "/auth/google",
     passport.authenticate("google", { scope: "profile" })
   );
-
-  //   Redirect user back to our app once they logged into google.
-  //   Use the options(successRedirect and failureRedirect) in Passport authenticate function to specify routes.
+  //   Redirect user back to our app once they logged in google.
+  //   Use the options(successRedirect and failureRedirect) in Passport's authenticate function to specify routes.
   app.get(
     "/auth/google/secrets",
     passport.authenticate("google", {
@@ -154,6 +125,7 @@ async function main() {
     })
   );
 
+  // Use Passport's Facebook strategy to authenticate users.
   app.get("/auth/facebook", passport.authenticate("facebook"));
   app.get(
     "/auth/facebook/secrets",
@@ -170,11 +142,21 @@ async function main() {
     res.render("register");
   });
 
-  //   Secrets page access when the session exists
-  //   Render "secrets" page if user is logged in, otherwise rediret user to the "login" page
+  //   Render all the secrets submitted by all users without showing any users' information.
   app.get("/secrets", (req, res) => {
+    User.find({ secret: { $ne: null } })
+      .then((foundUsers) => {
+        res.render("secrets", { usersWithSecrets: foundUsers });
+      })
+      .catch((err) => {
+        console.log(err);
+      });
+  });
+
+  //   Render "submit" page once user is logged-in or registered, otherwise rediret user to the "login" page.
+  app.get("/submit", (req, res) => {
     if (req.isAuthenticated()) {
-      res.render("secrets");
+      res.render("submit");
     } else {
       res.redirect("/login");
     }
@@ -193,48 +175,57 @@ async function main() {
   });
 
   //   POST ROUTE
-  //   Register a user using passportLocalMongoose package. Allow user to access "/secrets" page after registration.
+  //   Register a new user using passportLocalMongoose package.
   app.post("/register", async (req, res) => {
     try {
-      const registerUser = await User.register(
-        { username: req.body.username },
-        req.body.password
-      );
-      // use Passport to authenticate user:
-      //   -- if user is successfully registered, then sets up a cookie and saves current login session
-      //   so that user can automatically be able to view the "secrets" page if they are still loged in
-      //   -- Otherwise, redirects user to "resgister" page and try again.
-      if (registerUser) {
-        passport.authenticate("local")(req, res, function () {
-          res.redirect("/secrets");
-        });
-      } else {
-        res.redirect("/register");
-      }
-    } catch {
-      (err) => console.log(err);
+      const user = new User({ username: req.body.username });
+      await User.register(user, req.body.password);
+      passport.authenticate("local")(req, res, () => {
+        res.redirect("/secrets");
+      });
+    } catch (err) {
+      console.log(err);
+      res.redirect("/register");
     }
   });
 
   // Authenticate users using Passport, to access "/secrets" page after logged in.
-  app.post("/login", (req, res) => {
+  app.post("/login", (req, res, next) => {
     const user = new User({
       username: req.body.username,
       password: req.body.password,
     });
 
-    console.log("0" + req.isAuthenticated());
+    // Notify users if their username or password is incorrect.
     req.login(user, function (err) {
       if (err) {
-        return next(err);
-      } else {
-        console.log("1" + req.isAuthenticated());
-        passport.authenticate("local")(req, res, function () {
-          console.log("2" + req.isAuthenticated());
-          res.redirect("/secrets");
+        res.render("/login", {
+          errMsg: "An error occurred. Please try again.",
         });
+        console.log(err);
+      } else {
+        passport.authenticate("local", (err, user) => {
+          if (err || !user) {
+            res.render("login", {
+              errMsg: "Invalid username or password.",
+            });
+          } else {
+            res.redirect("/secrets");
+          }
+        })(req, res, next);
       }
     });
+  });
+
+  // Parse and save the secret that user entered on the "submit" page along with the user's info
+  app.post("/submit", (req, res) => {
+    const submittedSecret = req.body.secret;
+    User.findById(req.user.id)
+      .then((foundUser) => {
+        foundUser.secret = submittedSecret;
+        foundUser.save().then(res.redirect("/secrets"));
+      })
+      .catch((err) => console.log(err));
   });
 
   app.listen(3000, () => {

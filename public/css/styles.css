@@ -13,6 +13,8 @@ body {
   font-size: 2rem;
   color: #fff;
   background-color: #000;
+  margin: 2%;
+  padding: 1%;
 }
 
 #errMsg {
@@ -26,6 +28,6 @@ body {
 .btn-google {
   padding-right: 27px;
 }
-.form-group {
+.container .mt-5 {
   margin-bottom: 15px;
 }
