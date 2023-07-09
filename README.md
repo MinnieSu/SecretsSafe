@@ -1,5 +1,7 @@
+<a name="readme-top"></a>
+
 <!-- ABOUT THE PROJECT -->
-# SecretsSafe
+# SecretsSafe 
 A web app where you can share your secrets anonymously. Free free to share your secrets in our community without worrying about exposing your username or email. :sunglasses::smirk:
 
 
@@ -10,6 +12,7 @@ A web app where you can share your secrets anonymously. Free free to share your 
 </ul>
 
 # How it works
+![SecretsSafe](/public/css/images/SecretsSafe.png)
 <ul>
   <li>A home screen with 2 buttons that directs the user to register or login</li>
   <li>User can view the secrets page and post their secrets on the submit page after login</li>
@@ -27,9 +30,11 @@ A web app where you can share your secrets anonymously. Free free to share your 
 
 
 # Credit
-<p>This web app is originated from Web Development bootcamp by Angela on Udemy. </p>
+<p>This web app is originated from "The Complete 2023 Web Development Bootcamp" by Dr. Angela Yu on Udemy. </p>
+<br>
+<p align="left">(<a href="#readme-top">🔼 Back to top</a>)</p>
 
-<p align="right">(<a href="#readme-top">back to top</a>)</p>
+
 
 <!-- MARKDOWN LINKS & IMAGES -->
 [Express.com]: https://img.shields.io/badge/Express-259dff?style=for-the-badge&logo=express&logoColor=white
